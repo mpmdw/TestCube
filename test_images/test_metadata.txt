@@ -1,0 +1,28 @@
+Rubik's Cube Facelet Segmenter - Test Images
+==================================================
+
+Input images: 640x480 pixels, PPM format
+Expected output: 9 x 64x64 pixel facelets per input
+
+Facelet ordering:
+  0 | 1 | 2
+  ---------
+  3 | 4 | 5
+  ---------
+  6 | 7 | 8
+
+Color codes:
+  W: RGB(255, 255, 255)
+  Y: RGB(255, 255, 0)
+  R: RGB(255, 0, 0)
+  O: RGB(255, 165, 0)
+  B: RGB(0, 0, 255)
+  G: RGB(0, 255, 0)
+
+Test patterns:
+  white_face: ['W', 'W', 'W', 'W', 'W', 'W', 'W', 'W', 'W']
+  red_face: ['R', 'R', 'R', 'R', 'R', 'R', 'R', 'R', 'R']
+  scrambled_1: ['R', 'B', 'Y', 'G', 'W', 'O', 'Y', 'R', 'B']
+  scrambled_2: ['W', 'O', 'G', 'R', 'B', 'Y', 'O', 'W', 'R']
+  checkerboard: ['R', 'W', 'R', 'W', 'R', 'W', 'R', 'W', 'R']
+  rainbow: ['R', 'O', 'Y', 'G', 'B', 'W', 'R', 'O', 'Y']
