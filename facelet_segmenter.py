@@ -1,20 +1,25 @@
 """
 Rubik's Cube Face Segmentation Component
 
-Takes an image containing a Rubik's cube face and outputs 9 segmented
-64x64 images of each facelet, ordered top-left to bottom-right.
+Takes an image containing a Rubik's cube face and outputs a 3x3 grid of
+segmented 64x64 facelet images as a numpy array.
 
-Facelet ordering:
-    0 | 1 | 2
-    ---------
-    3 | 4 | 5
-    ---------
-    6 | 7 | 8
+Output shape: (3, 3, 64, 64, 3)
+    - First two dimensions: row, col position in the 3x3 grid
+    - Next two dimensions: 64x64 pixel image
+    - Last dimension: RGB/BGR color channels
+
+Grid layout:
+    [0,0] | [0,1] | [0,2]
+    ----------------------
+    [1,0] | [1,1] | [1,2]
+    ----------------------
+    [2,0] | [2,1] | [2,2]
 """
 
 import cv2
 import numpy as np
-from typing import List, Tuple, Optional
+from typing import Optional
 from dataclasses import dataclass
 
 
@@ -29,13 +34,13 @@ class BoundingBox:
 
 class FaceletSegmenter:
     """
-    Segments a Rubik's cube face image into 9 individual facelet images.
+    Segments a Rubik's cube face image into a 3x3 grid of facelet images.
 
     Usage:
         segmenter = FaceletSegmenter(output_size=64)
         facelets = segmenter.segment(image)
-        # or with explicit bounding box:
-        facelets = segmenter.segment(image, bbox=BoundingBox(100, 50, 300, 300))
+        # facelets.shape == (3, 3, 64, 64, 3)
+        # Access center facelet: facelets[1, 1]
     """
 
     def __init__(self, output_size: int = 64):
@@ -51,9 +56,9 @@ class FaceletSegmenter:
         self,
         image: np.ndarray,
         bbox: Optional[BoundingBox] = None
-    ) -> List[np.ndarray]:
+    ) -> np.ndarray:
         """
-        Segment a cube face image into 9 facelets.
+        Segment a cube face image into a 3x3 grid of facelets.
 
         Args:
             image: Input image (BGR format from OpenCV or RGB)
@@ -61,7 +66,9 @@ class FaceletSegmenter:
                   If None, attempts to auto-detect or uses full image.
 
         Returns:
-            List of 9 numpy arrays, each 64x64x3, ordered top-left to bottom-right
+            numpy array of shape (3, 3, 64, 64, 3)
+            - result[row, col] gives the facelet at grid position (row, col)
+            - result[0, 0] = top-left, result[1, 1] = center, result[2, 2] = bottom-right
         """
         if bbox is None:
             bbox = self._detect_face_region(image)
@@ -69,17 +76,10 @@ class FaceletSegmenter:
         # Extract the face region
         face_region = self._extract_region(image, bbox)
 
-        # Split into 9 facelets
+        # Split into 3x3 grid of facelets
         facelets = self._split_into_facelets(face_region)
 
-        # Resize each facelet to output size
-        resized_facelets = [
-            cv2.resize(facelet, (self.output_size, self.output_size),
-                      interpolation=cv2.INTER_AREA)
-            for facelet in facelets
-        ]
-
-        return resized_facelets
+        return facelets
 
     def _detect_face_region(self, image: np.ndarray) -> BoundingBox:
         """
@@ -185,25 +185,30 @@ class FaceletSegmenter:
 
         return square_region
 
-    def _split_into_facelets(self, face_region: np.ndarray) -> List[np.ndarray]:
+    def _split_into_facelets(self, face_region: np.ndarray) -> np.ndarray:
         """
-        Split the square face region into 9 equal facelets.
+        Split the square face region into a 3x3 grid of facelets.
 
         Args:
             face_region: Square image of the cube face
 
         Returns:
-            List of 9 facelet images, ordered top-left to bottom-right
+            numpy array of shape (3, 3, output_size, output_size, 3)
         """
         height, width = face_region.shape[:2]
+        channels = face_region.shape[2] if len(face_region.shape) == 3 else 1
 
         # Calculate facelet dimensions
         facelet_h = height // 3
         facelet_w = width // 3
 
-        facelets = []
+        # Pre-allocate output array
+        facelets = np.zeros(
+            (3, 3, self.output_size, self.output_size, channels),
+            dtype=face_region.dtype
+        )
 
-        # Extract each facelet (row by row, left to right)
+        # Extract and resize each facelet
         for row in range(3):
             for col in range(3):
                 y_start = row * facelet_h
@@ -211,8 +216,16 @@ class FaceletSegmenter:
                 x_start = col * facelet_w
                 x_end = (col + 1) * facelet_w if col < 2 else width
 
-                facelet = face_region[y_start:y_end, x_start:x_end].copy()
-                facelets.append(facelet)
+                facelet = face_region[y_start:y_end, x_start:x_end]
+
+                # Resize to output size
+                resized = cv2.resize(
+                    facelet,
+                    (self.output_size, self.output_size),
+                    interpolation=cv2.INTER_AREA
+                )
+
+                facelets[row, col] = resized
 
         return facelets
 
@@ -220,7 +233,7 @@ class FaceletSegmenter:
         self,
         image_path: str,
         bbox: Optional[BoundingBox] = None
-    ) -> List[np.ndarray]:
+    ) -> np.ndarray:
         """
         Convenience method to segment directly from an image file.
 
@@ -229,7 +242,7 @@ class FaceletSegmenter:
             bbox: Optional bounding box for the cube face region
 
         Returns:
-            List of 9 facelet images
+            numpy array of shape (3, 3, 64, 64, 3)
         """
         image = cv2.imread(image_path)
         if image is None:
@@ -238,29 +251,31 @@ class FaceletSegmenter:
 
     def save_facelets(
         self,
-        facelets: List[np.ndarray],
+        facelets: np.ndarray,
         output_dir: str,
         prefix: str = "facelet"
-    ) -> List[str]:
+    ) -> list:
         """
         Save facelet images to files.
 
         Args:
-            facelets: List of 9 facelet images
+            facelets: numpy array of shape (3, 3, 64, 64, 3)
             output_dir: Directory to save images
             prefix: Filename prefix (default "facelet")
 
         Returns:
-            List of saved file paths
+            List of saved file paths (in row-major order)
         """
         import os
         os.makedirs(output_dir, exist_ok=True)
 
         saved_paths = []
-        for i, facelet in enumerate(facelets):
-            path = os.path.join(output_dir, f"{prefix}_{i}.png")
-            cv2.imwrite(path, facelet)
-            saved_paths.append(path)
+        for row in range(3):
+            for col in range(3):
+                idx = row * 3 + col
+                path = os.path.join(output_dir, f"{prefix}_{row}_{col}.png")
+                cv2.imwrite(path, facelets[row, col])
+                saved_paths.append(path)
 
         return saved_paths
 
@@ -269,7 +284,7 @@ def segment_cube_face(
     image: np.ndarray,
     bbox: Optional[BoundingBox] = None,
     output_size: int = 64
-) -> List[np.ndarray]:
+) -> np.ndarray:
     """
     Functional interface for facelet segmentation.
 
@@ -279,7 +294,7 @@ def segment_cube_face(
         output_size: Size of output facelet images (default 64)
 
     Returns:
-        List of 9 numpy arrays, each output_size x output_size x 3
+        numpy array of shape (3, 3, output_size, output_size, 3)
     """
     segmenter = FaceletSegmenter(output_size=output_size)
     return segmenter.segment(image, bbox)

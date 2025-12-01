@@ -36,9 +36,12 @@ def create_synthetic_cube_face(
         'green': (0, 255, 0),
     }
 
-    # Create a scrambled face pattern (9 colors)
-    color_names = ['red', 'blue', 'yellow', 'green', 'white', 'orange',
-                   'yellow', 'red', 'blue']
+    # Create a scrambled face pattern (3x3 grid)
+    color_grid = [
+        ['red', 'blue', 'yellow'],
+        ['green', 'white', 'orange'],
+        ['yellow', 'red', 'blue']
+    ]
 
     # Create background image (dark gray)
     image = np.full((image_size[0], image_size[1], 3), 50, dtype=np.uint8)
@@ -50,8 +53,7 @@ def create_synthetic_cube_face(
     # Draw each facelet
     for row in range(3):
         for col in range(3):
-            idx = row * 3 + col
-            color = colors[color_names[idx]]
+            color = colors[color_grid[row][col]]
 
             x = offset[0] + col * facelet_size + gap
             y = offset[1] + row * facelet_size + gap
@@ -86,22 +88,19 @@ def create_synthetic_cube_face(
     return image
 
 
-def visualize_facelets(facelets: list, title: str = "Segmented Facelets") -> np.ndarray:
+def visualize_facelets(facelets: np.ndarray, title: str = "Segmented Facelets") -> np.ndarray:
     """
-    Create a visualization of the 9 facelets arranged in a 3x3 grid.
+    Create a visualization of the 3x3 facelet grid.
 
     Args:
-        facelets: List of 9 facelet images
+        facelets: numpy array of shape (3, 3, 64, 64, 3)
         title: Title for the visualization
 
     Returns:
         Combined visualization image
     """
-    if len(facelets) != 9:
-        raise ValueError(f"Expected 9 facelets, got {len(facelets)}")
-
     # Get facelet size
-    size = facelets[0].shape[0]
+    size = facelets.shape[2]
     gap = 5
 
     # Create output image
@@ -111,10 +110,9 @@ def visualize_facelets(facelets: list, title: str = "Segmented Facelets") -> np.
     # Place each facelet
     for row in range(3):
         for col in range(3):
-            idx = row * 3 + col
             y = gap + row * (size + gap)
             x = gap + col * (size + gap)
-            viz[y:y+size, x:x+size] = facelets[idx]
+            viz[y:y+size, x:x+size] = facelets[row, col]
 
     # Add title
     cv2.putText(viz, title, (10, total_size + 22),
@@ -140,12 +138,21 @@ def test_basic_segmentation():
     bbox = BoundingBox(x=170, y=90, width=300, height=300)
     facelets = segmenter.segment(image, bbox=bbox)
 
-    print(f"Segmented into {len(facelets)} facelets")
-    print(f"Each facelet shape: {facelets[0].shape}")
+    print(f"Output shape: {facelets.shape}")
+    print(f"  - 3x3 grid of facelets")
+    print(f"  - Each facelet: {facelets[0, 0].shape}")
 
-    # Verify output
-    assert len(facelets) == 9, "Should produce 9 facelets"
-    assert all(f.shape == (64, 64, 3) for f in facelets), "All facelets should be 64x64x3"
+    # Verify output shape
+    assert facelets.shape == (3, 3, 64, 64, 3), \
+        f"Expected shape (3, 3, 64, 64, 3), got {facelets.shape}"
+
+    # Test accessing individual facelets
+    top_left = facelets[0, 0]
+    center = facelets[1, 1]
+    bottom_right = facelets[2, 2]
+    print(f"  - Top-left [0,0]: {top_left.shape}")
+    print(f"  - Center [1,1]: {center.shape}")
+    print(f"  - Bottom-right [2,2]: {bottom_right.shape}")
 
     print("PASSED: Basic segmentation test")
     return image, facelets
@@ -166,10 +173,10 @@ def test_auto_detection():
     # Segment without bounding box (auto-detect)
     facelets = segmenter.segment(image)
 
-    print(f"Auto-detected and segmented into {len(facelets)} facelets")
-    print(f"Each facelet shape: {facelets[0].shape}")
+    print(f"Auto-detected and segmented")
+    print(f"Output shape: {facelets.shape}")
 
-    assert len(facelets) == 9, "Should produce 9 facelets"
+    assert facelets.shape[:2] == (3, 3), "Should produce 3x3 grid"
 
     print("PASSED: Auto detection test")
     return facelets
@@ -187,9 +194,9 @@ def test_functional_interface():
     # Use functional interface
     facelets = segment_cube_face(image, output_size=64)
 
-    print(f"Functional interface produced {len(facelets)} facelets")
+    print(f"Functional interface output shape: {facelets.shape}")
 
-    assert len(facelets) == 9, "Should produce 9 facelets"
+    assert facelets.shape == (3, 3, 64, 64, 3), "Should produce (3, 3, 64, 64, 3)"
 
     print("PASSED: Functional interface test")
     return facelets
@@ -208,9 +215,10 @@ def test_different_output_sizes():
         bbox = BoundingBox(x=170, y=90, width=300, height=300)
         facelets = segmenter.segment(image, bbox=bbox)
 
-        assert all(f.shape == (size, size, 3) for f in facelets), \
-            f"All facelets should be {size}x{size}x3"
-        print(f"  Output size {size}x{size}: OK")
+        expected_shape = (3, 3, size, size, 3)
+        assert facelets.shape == expected_shape, \
+            f"Expected {expected_shape}, got {facelets.shape}"
+        print(f"  Output size {size}x{size}: shape {facelets.shape} OK")
 
     print("PASSED: Different output sizes test")
 
@@ -278,23 +286,25 @@ from facelet_segmenter import FaceletSegmenter, BoundingBox
 # Create segmenter
 segmenter = FaceletSegmenter(output_size=64)
 
-# Option 1: Segment with auto-detection
+# Segment an image
 facelets = segmenter.segment_from_file("cube_face.jpg")
+# facelets.shape == (3, 3, 64, 64, 3)
 
-# Option 2: Segment with explicit bounding box
-bbox = BoundingBox(x=100, y=50, width=300, height=300)
-facelets = segmenter.segment_from_file("cube_face.jpg", bbox=bbox)
+# Access individual facelets by grid position:
+top_left = facelets[0, 0]      # shape: (64, 64, 3)
+center = facelets[1, 1]        # shape: (64, 64, 3)
+bottom_right = facelets[2, 2]  # shape: (64, 64, 3)
 
-# Save results
+# Grid layout:
+#   [0,0] | [0,1] | [0,2]
+#   ----------------------
+#   [1,0] | [1,1] | [1,2]
+#   ----------------------
+#   [2,0] | [2,1] | [2,2]
+
+# Save individual facelets
 segmenter.save_facelets(facelets, "output/", prefix="facelet")
-
-# Each facelet is a 64x64x3 numpy array
-# Facelet ordering:
-#   0 | 1 | 2
-#   ---------
-#   3 | 4 | 5
-#   ---------
-#   6 | 7 | 8
+# Creates: output/facelet_0_0.png through output/facelet_2_2.png
 """)
 
 
